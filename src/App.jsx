@@ -171,13 +171,23 @@ function App() {
   const [position, setPosition] = useState(null)
 
   const flyToLocation = () => {
-    if (navigator.geolocation && mapRef.current) {
-      navigator.geolocation.getCurrentPosition((pos) => {
+    if (!navigator.geolocation) {
+      alert('このブラウザでは位置情報が使えません')
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
         const { latitude, longitude } = pos.coords
         setPosition([latitude, longitude])
-        mapRef.current.flyTo([latitude, longitude], 15)
-      })
-    }
+        if (mapRef.current) mapRef.current.flyTo([latitude, longitude], 15)
+      },
+      (err) => {
+        console.error(err)
+        alert('位置情報を取得できませんでした')
+      },
+      { enableHighAccuracy: true } // 高精度
+    )
   }
 
   return (
