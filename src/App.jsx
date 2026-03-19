@@ -1,12 +1,12 @@
 // App.js
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import shelters from './shelters.json'
 import { supabase } from './supabaseClient'
 
-// --- ピンの色を種類ごとに決定する関数 ---
+// --- ピン色 ---
 const getIcon = (type) => {
   let color = 'blue'
   if (type === '広域') color = 'green'
@@ -18,12 +18,10 @@ const getIcon = (type) => {
     shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
     iconSize: [25, 41],
     iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-    shadowSize: [41, 41],
   })
 }
 
-// --- 現在地ボタン ---
+// --- 現在地 ---
 function LocationMarker() {
   const [position, setPosition] = useState(null)
   const map = useMap()
@@ -36,94 +34,125 @@ function LocationMarker() {
   }
 
   return (
-    <div style={{ position: 'absolute', top: '20px', right: '20px', zIndex: 1000 }}>
-      <button
-        onClick={handleClick}
-        style={{
-          padding: '12px 20px',
-          backgroundColor: '#fff',
-          border: '2px solid #007bff',
-          borderRadius: '8px',
-          cursor: 'pointer',
-          fontWeight: 'bold',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-          fontSize: '16px',
-        }}
-      >
-        📍 現在地を表示
-      </button>
-      {position && (
-        <Marker position={position}>
-          <Popup>あなたは今ここにいます！</Popup>
-        </Marker>
-      )}
+    <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 1000 }}>
+      <button onClick={handleClick}>📍 現在地</button>
+      {position && <Marker position={position}><Popup>現在地</Popup></Marker>}
     </div>
   )
 }
 
-// --- Googleログインボタン ---
+// --- Googleログイン ---
 function GoogleLoginButton() {
   const signInWithGoogle = async () => {
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-    })
-    if (error) console.log('Login Error:', error)
-    else console.log('Redirecting to Google...', data)
+    await supabase.auth.signInWithOAuth({ provider: 'google' })
   }
 
   return (
-    <div style={{ position: 'absolute', top: '20px', left: '20px', zIndex: 1000 }}>
-      <button
-        onClick={signInWithGoogle}
-        style={{
-          padding: '12px 20px',
-          backgroundColor: '#4285F4',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '8px',
-          cursor: 'pointer',
-          fontWeight: 'bold',
-          boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-          fontSize: '16px',
-        }}
-      >
-        Sign in with Google
-      </button>
+    <div style={{ position: 'absolute', top: 100, left: 20, zIndex: 1000 }}>
+      <button>Sign in with Google</button>
     </div>
   )
 }
 
-// --- メイン App ---
-function App() {
-  const center = [35.1709, 136.8815] // 名古屋駅中心
+// --- コメント ---
+function CommentBox() {
+  const [text, setText] = useState('')
+  const [messages, setMessages] = useState([])
+  const [channel, setChannel] = useState(null)
+
+  useEffect(() => {
+    const ch = supabase.channel('pins')
+
+    // ★ 修正：payloadの中身を取り出す
+    ch.on('broadcast', { event: 'new-comment' }, ({ payload }) => {
+      console.log('受信:', payload)
+      if (payload?.msg) {
+        setMessages((prev) => [...prev, payload.msg])
+      }
+    })
+
+    ch.subscribe((status) => {
+      console.log('状態:', status)
+    })
+
+    setChannel(ch)
+
+    return () => ch.unsubscribe()
+  }, [])
+
+  const sendMessage = async () => {
+    if (!text || !channel) return
+
+    await channel.send({
+      type: 'broadcast',
+      event: 'new-comment',
+      payload: { msg: text },
+    })
+
+    // ★ 自分にも即表示
+    setMessages((prev) => [...prev, text])
+
+    setText('')
+  }
 
   return (
-    <div style={{ height: '100vh', width: '100vw', margin: 0, padding: 0 }}>
+    <div
+      style={{
+        position: 'absolute',
+        bottom: 20,
+        left: 20,
+        zIndex: 1000,
+        background: '#fff',
+        padding: 10,
+        borderRadius: 8,
+        width: 260,
+        maxWidth: '90vw',
+      }}
+    >
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="コメント"
+        style={{
+          width: '100%',
+          boxSizing: 'border-box', // ★ はみ出し防止
+          marginBottom: 6,
+        }}
+      />
+
+      <button onClick={sendMessage} style={{ width: '100%' }}>
+        送信
+      </button>
+
+      <ul style={{ maxHeight: 120, overflowY: 'auto', color: '#000' }}>
+        {messages.map((m, i) => (
+          <li key={i}>{m}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// --- メイン ---
+function App() {
+  const center = [35.1709, 136.8815]
+
+  return (
+    <div style={{ height: '100vh', width: '100vw' }}>
       <MapContainer center={center} zoom={13} style={{ height: '100%', width: '100%' }}>
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {/* 現在地ボタン */}
         <LocationMarker />
-
-        {/* Googleログインボタン */}
         <GoogleLoginButton />
 
-        {/* 避難所マーカー */}
         {shelters.map((s) => (
           <Marker key={s.id} position={s.pos} icon={getIcon(s.type)}>
-            <Popup>
-              <div style={{ fontSize: '14px' }}>
-                <strong style={{ fontSize: '16px', color: '#333' }}>{s.name}</strong>
-                <br />
-                <span style={{ color: '#666' }}>種別: {s.type}</span>
-              </div>
-            </Popup>
+            <Popup>{s.name}</Popup>
           </Marker>
         ))}
       </MapContainer>
+
+      <CommentBox />
     </div>
   )
 }
