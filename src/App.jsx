@@ -1,6 +1,6 @@
 // App.js
-import React, { useState, useEffect } from 'react'
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
+import React, { useState, useEffect, useRef } from 'react'
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import shelters from './shelters.json'
@@ -21,26 +21,6 @@ const getIcon = (type) => {
   })
 }
 
-// --- 現在地 ---
-function LocationMarker() {
-  const [position, setPosition] = useState(null)
-  const map = useMap()
-
-  const handleClick = () => {
-    map.locate().on('locationfound', (e) => {
-      setPosition(e.latlng)
-      map.flyTo(e.latlng, 15)
-    })
-  }
-
-  return (
-    <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 1000 }}>
-      <button onClick={handleClick}>📍 現在地</button>
-      {position && <Marker position={position}><Popup>現在地</Popup></Marker>}
-    </div>
-  )
-}
-
 // --- Googleログイン ---
 function GoogleLoginButton() {
   const signInWithGoogle = async () => {
@@ -54,7 +34,7 @@ function GoogleLoginButton() {
   )
 }
 
-// --- 1対1チャット（テスト用） ---
+// --- 1対1チャット ---
 function ChatBox({ userName }) {
   const [text, setText] = useState('')
   const [messages, setMessages] = useState([])
@@ -118,14 +98,15 @@ function ChatBox({ userName }) {
 }
 
 // --- メニュー画面 ---
-function Menu({ closeMenu, userName, setUserName, passcodes, setPasscodes }) {
+function Menu({ closeMenu, userName, setUserName, passcodes, setPasscodes, flyToLocation }) {
   const [newPasscode, setNewPasscode] = useState('')
 
   const addPasscode = () => {
-    if (newPasscode && !passcodes.includes(newPasscode)) {
-      setPasscodes([...passcodes, newPasscode])
-      setNewPasscode('')
-    }
+    if (!newPasscode) return
+    if (passcodes.includes(newPasscode)) return
+    if (passcodes.length >= 10) return alert('合言葉は最大10個までです')
+    setPasscodes([...passcodes, newPasscode])
+    setNewPasscode('')
   }
 
   return (
@@ -165,6 +146,10 @@ function Menu({ closeMenu, userName, setUserName, passcodes, setPasscodes }) {
         <button onClick={addPasscode} style={{ marginTop: 5, width: '100%' }}>追加</button>
       </div>
 
+      <div style={{ marginBottom: 10 }}>
+        <button onClick={flyToLocation} style={{ width: '100%' }}>📍 現在地取得</button>
+      </div>
+
       <div>
         <h4>登録済み合言葉:</h4>
         <ul>
@@ -178,25 +163,41 @@ function Menu({ closeMenu, userName, setUserName, passcodes, setPasscodes }) {
 // --- メイン ---
 function App() {
   const center = [35.1709, 136.8815]
+  const mapRef = useRef()
 
   const [menuOpen, setMenuOpen] = useState(false)
   const [userName, setUserName] = useState('')
   const [passcodes, setPasscodes] = useState([])
+  const [position, setPosition] = useState(null)
+
+  const flyToLocation = () => {
+    if (navigator.geolocation && mapRef.current) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const { latitude, longitude } = pos.coords
+        setPosition([latitude, longitude])
+        mapRef.current.flyTo([latitude, longitude], 15)
+      })
+    }
+  }
 
   return (
     <div style={{ height: '100vh', width: '100vw' }}>
       {/* マップ */}
-      <MapContainer center={center} zoom={13} style={{ height: '100%', width: '100%' }}>
+      <MapContainer
+        center={center}
+        zoom={13}
+        style={{ height: '100%', width: '100%' }}
+        whenCreated={(mapInstance) => { mapRef.current = mapInstance }}
+      >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-        <LocationMarker />
-        <GoogleLoginButton />
 
         {shelters.map((s) => (
           <Marker key={s.id} position={s.pos} icon={getIcon(s.type)}>
             <Popup>{s.name}</Popup>
           </Marker>
         ))}
+
+        {position && <Marker position={position}><Popup>現在地</Popup></Marker>}
       </MapContainer>
 
       {/* チャット */}
@@ -210,6 +211,7 @@ function App() {
           setUserName={setUserName}
           passcodes={passcodes}
           setPasscodes={setPasscodes}
+          flyToLocation={flyToLocation}
         />
       )}
 
@@ -217,6 +219,9 @@ function App() {
       <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 1500 }}>
         <button onClick={() => setMenuOpen(true)}>⚙️</button>
       </div>
+
+      {/* Googleログイン */}
+      <GoogleLoginButton />
     </div>
   )
 }
