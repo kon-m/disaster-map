@@ -1,4 +1,4 @@
-// App.js
+// App.jsx
 import React, { useState, useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
@@ -12,6 +12,7 @@ const getIcon = (type) => {
   if (type === '広域') color = 'green'
   if (type === '指定') color = 'red'
   if (type === '帰宅困難') color = 'orange'
+  if (type === '行政') color = 'purple' // 行政は目立つ色に変更
 
   return new L.Icon({
     iconUrl: `https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-${color}.png`,
@@ -44,9 +45,7 @@ function ChatBox({ userName }) {
     const channel = supabase.channel(ROOM_NAME)
 
     channel.on('broadcast', { event: 'private-message' }, ({ payload }) => {
-      if (payload?.msg) {
-        setMessages(prev => [...prev, payload])
-      }
+      if (payload?.msg) setMessages(prev => [...prev, payload])
     })
 
     channel.subscribe()
@@ -55,14 +54,12 @@ function ChatBox({ userName }) {
 
   const sendMessage = async () => {
     if (!text) return
-
     const channel = supabase.channel(ROOM_NAME)
     await channel.send({
       type: 'broadcast',
       event: 'private-message',
       payload: { msg: text, from: userName || '名無し' },
     })
-
     setMessages(prev => [...prev, { msg: text, from: userName || '名無し' }])
     setText('')
   }
@@ -119,7 +116,7 @@ function Menu({ closeMenu, userName, setUserName, passcodes, setPasscodes, flyTo
         background: '#fff',
         padding: 20,
         borderRadius: 8,
-        width: 250,
+        width: 280,
         boxShadow: '0 0 10px rgba(0,0,0,0.3)',
       }}
     >
@@ -169,6 +166,21 @@ function App() {
   const [userName, setUserName] = useState('')
   const [passcodes, setPasscodes] = useState([])
   const [position, setPosition] = useState(null)
+  const [adminData, setAdminData] = useState([]) // 行政APIデータ
+
+  // 行政API取得
+  useEffect(() => {
+    const fetchAdminData = async () => {
+      try {
+        const res = await fetch('http://localhost:3000/api/data')
+        const data = await res.json()
+        setAdminData(data)
+      } catch (err) {
+        console.error('行政API取得エラー', err)
+      }
+    }
+    fetchAdminData()
+  }, [])
 
   const flyToLocation = () => {
     if (!navigator.geolocation) {
@@ -186,7 +198,7 @@ function App() {
         console.error(err)
         alert('位置情報を取得できませんでした')
       },
-      { enableHighAccuracy: true } // 高精度
+      { enableHighAccuracy: true }
     )
   }
 
@@ -201,13 +213,32 @@ function App() {
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
+        {/* 既存の避難所マーカー */}
         {shelters.map((s) => (
           <Marker key={s.id} position={s.pos} icon={getIcon(s.type)}>
-            <Popup>{s.name}</Popup>
+            <Popup>
+              <strong>{s.name}</strong><br/>
+              種類: {s.type}<br/>
+              住所: {s.address || '不明'}<br/>
+              備考: {s.note || '-'}
+            </Popup>
           </Marker>
         ))}
 
+        {/* 現在地マーカー */}
         {position && <Marker position={position}><Popup>現在地</Popup></Marker>}
+
+        {/* 行政APIマーカー */}
+        {adminData.map((a, i) => (
+          <Marker key={i} position={[a.lat, a.lng]} icon={getIcon('行政')}>
+            <Popup>
+              <strong>{a.name}</strong><br/>
+              種類: {a.type || '行政'}<br/>
+              住所: {a.address || '不明'}<br/>
+              詳細: {a.note || '-'}
+            </Popup>
+          </Marker>
+        ))}
       </MapContainer>
 
       {/* チャット */}
