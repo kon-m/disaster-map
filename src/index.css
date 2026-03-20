@@ -1,3 +1,6 @@
+/* Leaflet用CSS - 必ず最初に置く */
+@import url('https://unpkg.com/leaflet/dist/leaflet.css');
+
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
@@ -65,4 +68,10 @@ button:focus-visible {
   button {
     background-color: #f9f9f9;
   }
+}
+
+/* 地図のサイズ */
+#map {
+  height: 600px; /* 高さ */
+  width: 100%;   /* 横幅いっぱい */
 }
