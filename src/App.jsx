@@ -2,10 +2,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMapEvent } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { supabase } from './supabaseClient';
+import L from 'leaflet'; // ← 追加
 
 // MUI
 import { IconButton, Menu as MuiMenu, MenuItem } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings'; // 歯車アイコン
+
+// --- デフォルトマーカー設定 ---
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 
 // --- Googleログイン ---
 function GoogleLoginButton() {
@@ -172,7 +181,7 @@ function App() {
         <MapBoundsUpdater onBoundsChange={setBounds} />
       </MapContainer>
 
-      {/* 歯車ボタン（枠線付き・白背景・ホバー） */}
+      {/* 歯車ボタン */}
       <div style={{ position: 'absolute', top: 20, right: 20, zIndex: 3000 }}>
         <IconButton
           onClick={handleMenuOpen}
