@@ -111,18 +111,23 @@ function MenuContent({ userName, setUserName, passcodes, setPasscodes, flyToLoca
   );
 }
 
-// --- bounds監視 ---
-function MapBoundsUpdater({ onBoundsChange }) {
-  useMapEvent('moveend', (e) => {
+// --- bounds & zoom 監視 ---
+function MapBoundsUpdater({ onBoundsChange, onZoomChange }) {
+  const map = useMapEvent('moveend', (e) => {
     onBoundsChange(e.target.getBounds());
+  });
+  useMapEvent('zoomend', (e) => {
+    onZoomChange(e.target.getZoom());
   });
   return null;
 }
 
 // --- メイン ---
 function App() {
-  const center = [35.1815, 136.9066];
+  const center = [35.1815, 136.9066]; // 日本中心
   const mapRef = useRef();
+
+  const ZOOM_THRESHOLD = 12; // 避難所表示開始ズーム
 
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [userName, setUserName] = useState('');
@@ -131,23 +136,36 @@ function App() {
   const [adminData, setAdminData] = useState([]);
   const [quakeData, setQuakeData] = useState([]);
   const [bounds, setBounds] = useState(null);
+  const [zoom, setZoom] = useState(13);
 
   // --- 避難所 + 速報統合fetch ---
   useEffect(() => {
     const fetchData = async (b = null) => {
       try {
         let url = 'http://localhost:3000/api/combined-data';
-        if (b) {
+
+        // 避難所取得はズーム >= ZOOM_THRESHOLD の時だけ
+        if (b && zoom >= ZOOM_THRESHOLD) {
           url += `?north=${b.getNorth()}&south=${b.getSouth()}&east=${b.getEast()}&west=${b.getWest()}`;
+        } else if (!b) {
+          // 初回は全国の地震速報だけ取得
+        } else {
+          setAdminData([]); // ズーム小さいときは非表示
+          return;
         }
+
         const res = await fetch(url);
         const data = await res.json();
 
         const evacuation = Array.isArray(data.evacuation) ? data.evacuation : [];
         const earthquakes = Array.isArray(data.earthquake) ? data.earthquake : [];
 
-        setAdminData(evacuation.filter((a) => !isNaN(a.lat) && !isNaN(a.lng)));
-        setQuakeData(earthquakes.filter((q) => !isNaN(q.latitude) && !isNaN(q.longitude)));
+        setAdminData(
+          evacuation.filter((a) => !isNaN(a.lat) && !isNaN(a.lng))
+        );
+        setQuakeData(
+          earthquakes.filter((q) => !isNaN(q.latitude) && !isNaN(q.longitude))
+        );
       } catch (err) {
         console.error('データ取得失敗:', err);
         setAdminData([]);
@@ -155,12 +173,8 @@ function App() {
       }
     };
 
-    // ① 初回 fetch（boundsなしでも全件取得）
-    fetchData();
-
-    // ② bounds更新時に fetch（範囲限定）
-    if (bounds) fetchData(bounds);
-  }, [bounds]);
+    fetchData(bounds);
+  }, [bounds, zoom]);
 
   const flyToLocation = () => {
     navigator.geolocation?.getCurrentPosition(
@@ -182,51 +196,55 @@ function App() {
         whenCreated={(map) => {
           mapRef.current = map;
           setBounds(map.getBounds());
+          setZoom(map.getZoom());
         }}
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {/* 避難所・行政データ（青ピン） */}
-        {adminData.map((a, i) => (
-          <Marker
-            key={i}
-            position={[a.lat, a.lng]}
-            icon={new L.Icon({
-              iconUrl: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
-              iconSize: [32, 32],
-            })}
-            zIndexOffset={0}
-          >
-            <Popup>
-              <strong>{a.name}</strong>
-              <br />
-              {a.address}
-              <br />
-              {a.type && <em>{a.type}</em>}
-            </Popup>
-          </Marker>
-        ))}
+        {/* 避難所・行政データ（青ピン） - ズーム >= ZOOM_THRESHOLD の時のみ */}
+        {zoom >= ZOOM_THRESHOLD &&
+          adminData.map((a, i) => (
+            <Marker
+              key={i}
+              position={[a.lat, a.lng]}
+              icon={new L.Icon({
+                iconUrl: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+                iconSize: [32, 32],
+              })}
+              zIndexOffset={0}
+            >
+              <Popup>
+                <strong>{a.name}</strong>
+                <br />
+                {a.address}
+                <br />
+                {a.type && <em>{a.type}</em>}
+              </Popup>
+            </Marker>
+          ))}
 
-        {/* 速報系地震マーカー（赤ピン） */}
-        {quakeData.map((q, i) => (
-          <Marker
-            key={i}
-            position={[q.latitude, q.longitude]}
-            icon={new L.Icon({
-              iconUrl: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
-              iconSize: [32, 32],
-            })}
-            zIndexOffset={1000}
-          >
-            <Popup>
-              <strong>地震速報</strong>
-              <br />
-              発生時刻: {q.time}
-              <br />
-              震度: {q.shindo || q.magnitude}
-            </Popup>
-          </Marker>
-        ))}
+        {/* 地震速報（赤ピン） - bounds 内だけ描画 */}
+        {quakeData
+          .filter((q) => bounds?.contains([q.latitude, q.longitude]))
+          .map((q, i) => (
+            <Marker
+              key={i}
+              position={[q.latitude, q.longitude]}
+              icon={new L.Icon({
+                iconUrl: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+                iconSize: [32, 32],
+              })}
+              zIndexOffset={1000}
+            >
+              <Popup>
+                <strong>地震速報</strong>
+                <br />
+                発生時刻: {q.time}
+                <br />
+                震度: {q.shindo || q.magnitude}
+              </Popup>
+            </Marker>
+          ))}
 
         {/* 現在地 */}
         {position && (
@@ -235,7 +253,10 @@ function App() {
           </Marker>
         )}
 
-        <MapBoundsUpdater onBoundsChange={setBounds} />
+        <MapBoundsUpdater
+          onBoundsChange={setBounds}
+          onZoomChange={setZoom}
+        />
       </MapContainer>
 
       {/* メニュー */}
