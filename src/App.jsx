@@ -3,8 +3,6 @@ import { MapContainer, TileLayer, Marker, Popup, useMapEvent } from 'react-leafl
 import 'leaflet/dist/leaflet.css';
 import { supabase } from './supabaseClient';
 import L from 'leaflet';
-
-// MUI
 import { IconButton, Menu as MuiMenu } from '@mui/material';
 import SettingsIcon from '@mui/icons-material/Settings';
 
@@ -21,7 +19,6 @@ function GoogleLoginButton() {
   const signInWithGoogle = async () => {
     await supabase.auth.signInWithOAuth({ provider: 'google' });
   };
-
   return (
     <div style={{ position: 'absolute', top: 100, left: 20, zIndex: 4000 }}>
       <button onClick={signInWithGoogle}>Sign in with Google</button>
@@ -88,7 +85,6 @@ function MenuContent({ userName, setUserName, passcodes, setPasscodes, flyToLoca
   const addPasscode = () => {
     if (!newPasscode || passcodes.includes(newPasscode)) return;
     if (passcodes.length >= 10) return alert('最大10個');
-
     setPasscodes([...passcodes, newPasscode]);
     setNewPasscode('');
   };
@@ -133,25 +129,62 @@ function App() {
   const [passcodes, setPasscodes] = useState([]);
   const [position, setPosition] = useState(null);
   const [adminData, setAdminData] = useState([]);
+  const [quakeData, setQuakeData] = useState([]);
   const [bounds, setBounds] = useState(null);
 
-  // API取得
+  // --- 避難所データ取得 ---
   useEffect(() => {
     if (!bounds) return;
     const fetchData = async () => {
+      let adminArray = [];
       try {
-        const res = await fetch(
+        const resAdmin = await fetch(
           `http://192.168.2.114:3000/api/data?north=${bounds.getNorth()}&south=${bounds.getSouth()}&east=${bounds.getEast()}&west=${bounds.getWest()}`
         );
-        const data = await res.json();
-        setAdminData(Array.isArray(data) ? data : []);
+        const dataAdmin = await resAdmin.json();
+        adminArray = Array.isArray(dataAdmin) ? dataAdmin : [];
       } catch (err) {
-        console.error(err);
-        setAdminData([]);
+        console.warn('ローカルAPI取得失敗', err);
+      }
+
+      try {
+        const resGSI = await fetch(
+          'https://www.gsi.go.jp/common/000235247/hinansyo_2023.geojson'
+        );
+        const gsiGeoJson = await resGSI.json();
+        const gsiArray = gsiGeoJson.features
+          .map((f) => ({
+            name: f.properties.NAME,
+            address: f.properties.ADDRESS || '住所不明',
+            type: f.properties.TYPE || '避難所',
+            lat: Number(f.geometry.coordinates[1]),
+            lng: Number(f.geometry.coordinates[0]),
+          }))
+          .filter((f) => !isNaN(f.lat) && !isNaN(f.lng)); // 座標チェック
+
+        setAdminData([...adminArray, ...gsiArray]);
+      } catch (err) {
+        console.error('GSI API取得失敗', err);
       }
     };
     fetchData();
   }, [bounds]);
+
+  // --- 速報系地震情報取得 ---
+  useEffect(() => {
+    const fetchQuake = async () => {
+      try {
+        const res = await fetch('https://api.dmdata.jp/earthquake/latest.json');
+        const data = await res.json();
+        setQuakeData(data.earthquakes || []);
+      } catch (err) {
+        console.error('速報取得エラー:', err);
+      }
+    };
+    fetchQuake();
+    const interval = setInterval(fetchQuake, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const flyToLocation = () => {
     navigator.geolocation?.getCurrentPosition(
@@ -177,12 +210,38 @@ function App() {
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {adminData.map((a, i) => (
-          <Marker key={i} position={[Number(a.lat), Number(a.lng)]} zIndexOffset={0}>
+        {/* 避難所・行政データ */}
+        {adminData.map((a, i) =>
+          !isNaN(a.lat) && !isNaN(a.lng) ? (
+            <Marker key={i} position={[a.lat, a.lng]} zIndexOffset={0}>
+              <Popup>
+                <strong>{a.name}</strong>
+                <br />
+                {a.address}
+                <br />
+                {a.type && <em>{a.type}</em>}
+              </Popup>
+            </Marker>
+          ) : null
+        )}
+
+        {/* 速報系地震マーカー */}
+        {quakeData.map((q, i) => (
+          <Marker
+            key={i}
+            position={[q.latitude, q.longitude]}
+            icon={new L.Icon({
+              iconUrl: 'https://maps.google.com/mapfiles/ms/icons/red-dot.png',
+              iconSize: [32, 32],
+            })}
+            zIndexOffset={1000}
+          >
             <Popup>
-              <strong>{a.name}</strong>
+              <strong>地震速報</strong>
               <br />
-              {a.address}
+              発生時刻: {q.time}
+              <br />
+              震度: {q.shindo || q.magnitude}
             </Popup>
           </Marker>
         ))}
