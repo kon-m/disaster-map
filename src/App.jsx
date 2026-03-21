@@ -132,59 +132,35 @@ function App() {
   const [quakeData, setQuakeData] = useState([]);
   const [bounds, setBounds] = useState(null);
 
-  // --- 避難所データ取得 ---
+  // --- 避難所 + 速報統合fetch ---
   useEffect(() => {
-    if (!bounds) return;
-    const fetchData = async () => {
-      let adminArray = [];
+    const fetchData = async (b = null) => {
       try {
-        const resAdmin = await fetch(
-          `http://192.168.2.114:3000/api/data?north=${bounds.getNorth()}&south=${bounds.getSouth()}&east=${bounds.getEast()}&west=${bounds.getWest()}`
-        );
-        const dataAdmin = await resAdmin.json();
-        adminArray = Array.isArray(dataAdmin) ? dataAdmin : [];
-      } catch (err) {
-        console.warn('ローカルAPI取得失敗', err);
-      }
-
-      try {
-        const resGSI = await fetch(
-          'https://www.gsi.go.jp/common/000235247/hinansyo_2023.geojson'
-        );
-        const gsiGeoJson = await resGSI.json();
-        const gsiArray = gsiGeoJson.features
-          .map((f) => ({
-            name: f.properties.NAME,
-            address: f.properties.ADDRESS || '住所不明',
-            type: f.properties.TYPE || '避難所',
-            lat: Number(f.geometry.coordinates[1]),
-            lng: Number(f.geometry.coordinates[0]),
-          }))
-          .filter((f) => !isNaN(f.lat) && !isNaN(f.lng)); // 座標チェック
-
-        setAdminData([...adminArray, ...gsiArray]);
-      } catch (err) {
-        console.error('GSI API取得失敗', err);
-      }
-    };
-    fetchData();
-  }, [bounds]);
-
-  // --- 速報系地震情報取得 ---
-  useEffect(() => {
-    const fetchQuake = async () => {
-      try {
-        const res = await fetch('https://api.dmdata.jp/earthquake/latest.json');
+        let url = 'http://localhost:3000/api/combined-data';
+        if (b) {
+          url += `?north=${b.getNorth()}&south=${b.getSouth()}&east=${b.getEast()}&west=${b.getWest()}`;
+        }
+        const res = await fetch(url);
         const data = await res.json();
-        setQuakeData(data.earthquakes || []);
+
+        const evacuation = Array.isArray(data.evacuation) ? data.evacuation : [];
+        const earthquakes = Array.isArray(data.earthquake) ? data.earthquake : [];
+
+        setAdminData(evacuation.filter((a) => !isNaN(a.lat) && !isNaN(a.lng)));
+        setQuakeData(earthquakes.filter((q) => !isNaN(q.latitude) && !isNaN(q.longitude)));
       } catch (err) {
-        console.error('速報取得エラー:', err);
+        console.error('データ取得失敗:', err);
+        setAdminData([]);
+        setQuakeData([]);
       }
     };
-    fetchQuake();
-    const interval = setInterval(fetchQuake, 30000);
-    return () => clearInterval(interval);
-  }, []);
+
+    // ① 初回 fetch（boundsなしでも全件取得）
+    fetchData();
+
+    // ② bounds更新時に fetch（範囲限定）
+    if (bounds) fetchData(bounds);
+  }, [bounds]);
 
   const flyToLocation = () => {
     navigator.geolocation?.getCurrentPosition(
@@ -210,22 +186,28 @@ function App() {
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
-        {/* 避難所・行政データ */}
-        {adminData.map((a, i) =>
-          !isNaN(a.lat) && !isNaN(a.lng) ? (
-            <Marker key={i} position={[a.lat, a.lng]} zIndexOffset={0}>
-              <Popup>
-                <strong>{a.name}</strong>
-                <br />
-                {a.address}
-                <br />
-                {a.type && <em>{a.type}</em>}
-              </Popup>
-            </Marker>
-          ) : null
-        )}
+        {/* 避難所・行政データ（青ピン） */}
+        {adminData.map((a, i) => (
+          <Marker
+            key={i}
+            position={[a.lat, a.lng]}
+            icon={new L.Icon({
+              iconUrl: 'https://maps.google.com/mapfiles/ms/icons/blue-dot.png',
+              iconSize: [32, 32],
+            })}
+            zIndexOffset={0}
+          >
+            <Popup>
+              <strong>{a.name}</strong>
+              <br />
+              {a.address}
+              <br />
+              {a.type && <em>{a.type}</em>}
+            </Popup>
+          </Marker>
+        ))}
 
-        {/* 速報系地震マーカー */}
+        {/* 速報系地震マーカー（赤ピン） */}
         {quakeData.map((q, i) => (
           <Marker
             key={i}
@@ -246,6 +228,7 @@ function App() {
           </Marker>
         ))}
 
+        {/* 現在地 */}
         {position && (
           <Marker position={position} zIndexOffset={0}>
             <Popup>現在地</Popup>
